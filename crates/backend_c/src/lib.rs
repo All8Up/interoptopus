@@ -116,3 +116,45 @@ mod interop;
 
 pub use docs::Markdown;
 pub use interop::{DocStyle, EnumVariants, Functions, Indentation, Interop, InteropBuilder, NameCase};
+
+#[cfg(test)]
+mod tests {
+    fn inventory() -> interoptopus::inventory::Inventory {
+        use interoptopus::inventory::{Inventory, InventoryBuilder};
+        use interoptopus::{ffi_function, ffi_type, function};
+
+        #[ffi_type]
+        pub struct Vec2 {
+            pub x: f32,
+            pub y: f32,
+        }
+
+        #[ffi_function]
+        pub fn my_function(input: Vec2) -> Vec2 {
+            input
+        }
+
+        Inventory::builder().register(function!(my_function)).validate().build()
+    }
+
+    /// TEMPORARY: Just a place to test templating.
+    #[test]
+    fn test_templates() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::Interop;
+        use interoptopus_backend_utils::IndentWriter;
+        use std::io::BufWriter;
+
+        let mut buffer = BufWriter::new(Vec::new());
+        Interop::builder()
+            .inventory(inventory())
+            .imports(true)
+            //.directives(false)
+            //.file_header_comment("// My test header.")
+            .ifndef("MY_TEST_HEADER".into())
+            .build()?
+            .write_to(&mut IndentWriter::new(&mut buffer))?;
+
+        assert!(false, "Generated output:\n{}", String::from_utf8(buffer.into_inner()?)?);
+        Ok(())
+    }
+}

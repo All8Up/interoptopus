@@ -2,7 +2,9 @@ use crate::Interop;
 use interoptopus_backend_utils::{Error, IndentWriter, indented};
 
 pub fn write_custom_defines(i: &Interop, w: &mut IndentWriter) -> Result<(), Error> {
-    indented!(w, "{}", i.custom_defines)?;
+    for define in &i.defines {
+        indented!(w, "{}", define)?;
+    }
     Ok(())
 }
 

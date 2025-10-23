@@ -19,3 +19,5 @@ derive_builder = { workspace = true }
 heck = { workspace = true }
 interoptopus = { workspace = true }
 interoptopus_backend_utils = { workspace = true }
+include_dir = { workspace = true }
+tera = { workspace = true }
