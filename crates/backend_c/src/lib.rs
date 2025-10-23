@@ -149,7 +149,7 @@ mod tests {
             .inventory(inventory())
             .imports(true)
             //.directives(false)
-            //.file_header_comment("// My test header.")
+            .file_header_comment("// My test header.")
             .ifndef("MY_TEST_HEADER".into())
             .build()?
             .write_to(&mut IndentWriter::new(&mut buffer))?;

@@ -225,7 +225,7 @@ impl Interop {
         }
         impl tera::Function for TypeName {
             fn call(&self, args: &std::collections::HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
-                let name = args.get("name").ok_or_else(|| tera::Error::msg("type_name: missing argument 'name'"))?;
+                let name = args.get("index").ok_or_else(|| tera::Error::msg("type_name: missing argument 'name'"))?;
                 let index = name.as_u64().ok_or_else(|| tera::Error::msg("type_name: argument 'name' not a u64"))? as usize;
                 let _ty = self.types.get(index).ok_or_else(|| tera::Error::msg("type_name: index out of bounds"))?;
                 let item = _ty.name_within_lib();
@@ -234,6 +234,20 @@ impl Interop {
             }
         }
         tera.register_function("type_name", TypeName { types: self.inventory.c_types().clone().into() });
+
+        struct FunctionName {
+            functions: Vec<interoptopus::lang::Function>,
+        }
+        impl tera::Function for FunctionName {
+            fn call(&self, args: &std::collections::HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
+                let name = args.get("index").ok_or_else(|| tera::Error::msg("function_name: missing argument 'name'"))?;
+                let index = name.as_u64().ok_or_else(|| tera::Error::msg("function_name: argument 'name' not a u64"))? as usize;
+                let _fn = self.functions.get(index).ok_or_else(|| tera::Error::msg("function_name: index out of bounds"))?;
+                let item = _fn.name();
+                Ok(tera::Value::String(item.into()))
+            }
+        }
+        tera.register_function("function_name", FunctionName { functions: self.inventory.functions().clone().into() });
 
         let string = tera.render("main.tpl", &context).unwrap();
         w.writer().write_all(string.as_bytes())?;
