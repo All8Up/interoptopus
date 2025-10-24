@@ -21,13 +21,6 @@ use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use interoptopus::inventory::Inventory;
 use interoptopus_backend_utils::{Error, IndentWriter};
 
-use include_dir::{Dir, include_dir};
-
-/// Embed the templates.
-/// TODO: Add the ability to export these to a folder for the user.
-/// TODO: Allow the user to override these templates.
-static TEMPLATES: Dir = include_dir!("$CARGO_MANIFEST_DIR/src/template");
-
 /// How to lay out functions.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum Functions {
@@ -74,6 +67,8 @@ pub enum NameCase {
     Snake,
     /// Names in upper case with '_' as spacing e.g. '`THE_TYPE_NAME`'
     ShoutySnake,
+    /// Names in original form, no conversion applied.
+    Original,
 }
 
 pub trait ToNamingStyle {
@@ -95,6 +90,7 @@ impl ToNamingStyle for &str {
             NameCase::UpperCamel => self.to_upper_camel_case(),
             NameCase::Snake => self.to_snake_case(),
             NameCase::ShoutySnake => self.to_shouty_snake_case(),
+            NameCase::Original => (*self).to_string(),
         }
     }
 }
@@ -116,17 +112,17 @@ pub struct Interop {
     /// Whether to write conditional directives like `#ifndef _X`.
     #[builder(default = "true")]
     directives: bool,
-    /// Whether to write standard imports like `#include <stdint.h>`.
+    /// Whether to write `#include <>` directives.
     #[builder(default = "true")]
     imports: bool,
-    #[builder(default = "vec![\"<stdint.h>\".to_string(), \"<stdbool.h>\".to_string(), \"<sys/types.h>\".to_string()]")]
-    includes: Vec<String>,
+    /// Additional `#include` lines in the form of `<item.h>` or `"item.h"`.
+    additional_includes: Vec<String>,
     /// The `_X` in `#ifndef _X` to be used.
     #[builder(default = "\"interoptopus_generated\".to_string()")]
     ifndef: String,
     /// Multiline string with custom `#define` values.
     #[builder(setter(into))]
-    defines: Vec<String>,
+    custom_defines: String,
     /// Prefix to be applied to any function, e.g., `__DLLATTR`.
     #[builder(setter(into))]
     function_attribute: String,
@@ -179,102 +175,32 @@ impl Interop {
     /// # Errors
     /// Can result in an error if I/O failed.
     pub fn write_to(&self, w: &mut IndentWriter) -> Result<(), Error> {
-        let mut tera = tera::Tera::default();
-        TEMPLATES.files().for_each(|file| {
-            let path = file.path().to_str().unwrap();
-            let contents = file.contents_utf8().unwrap();
-            println!("Adding template: {}", path);
-            tera.add_raw_template(path, contents).unwrap();
-        });
+        write_file_header_comments(self, w)?;
+        w.newline()?;
 
-        use tera::to_value;
-        let mut context = tera::Context::new();
-        context.insert(
-            "structure",
-            &tera::Value::Object(tera::Map::from_iter(
-                [
-                    ("header".to_string(), to_value(&self.file_header_comment).unwrap()),
-                    ("footer".to_string(), to_value("// My test footer.").unwrap()),
-                ]
-                .into_iter()
-                .collect::<tera::Map<String, tera::Value>>(),
-            )),
-        );
-        context.insert(
-            "config",
-            &tera::Value::Object(tera::Map::from_iter(
-                [
-                    ("cpp_compat".to_string(), to_value(&self.directives).unwrap()),
-                    ("ifndef".to_string(), to_value(&self.ifndef).unwrap()),
-                    ("imports".to_string(), to_value(&self.imports).unwrap()),
-                ]
-                .into_iter()
-                .collect::<tera::Map<String, tera::Value>>(),
-            )),
-        );
-        context.insert("includes", &to_value(&self.includes).unwrap());
-        context.insert("defines", &to_value(&self.defines).unwrap());
+        write_ifndef(self, w, |w| {
+            write_ifdefcpp(self, w, |w| {
+                if self.imports {
+                    write_imports(self, w)?;
+                    w.newline()?;
+                }
 
-        // Insert by index and use registered functions to break them down for rendering.
-        context.insert("constants", &to_value(&self.inventory.constants().iter().enumerate().map(|(i, _)| i).collect::<Vec<usize>>()).unwrap());
-        context.insert("types", &to_value(&self.inventory.c_types().iter().enumerate().map(|(i, _)| i).collect::<Vec<usize>>()).unwrap());
-        context.insert("functions", &to_value(&self.inventory.functions().iter().enumerate().map(|(i, _)| i).collect::<Vec<usize>>()).unwrap());
+                write_custom_defines(self, w)?;
+                w.newline()?;
 
-        struct TypeName {
-            types: Vec<interoptopus::lang::Type>,
-        }
-        impl tera::Function for TypeName {
-            fn call(&self, args: &std::collections::HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
-                let name = args.get("index").ok_or_else(|| tera::Error::msg("type_name: missing argument 'name'"))?;
-                let index = name.as_u64().ok_or_else(|| tera::Error::msg("type_name: argument 'name' not a u64"))? as usize;
-                let _ty = self.types.get(index).ok_or_else(|| tera::Error::msg("type_name: index out of bounds"))?;
-                let item = _ty.name_within_lib();
+                write_constants(self, w)?;
+                w.newline()?;
 
-                Ok(tera::Value::String(item))
-            }
-        }
-        tera.register_function("type_name", TypeName { types: self.inventory.c_types().clone().into() });
+                write_type_definitions(self, w)?;
+                w.newline()?;
 
-        struct FunctionName {
-            functions: Vec<interoptopus::lang::Function>,
-        }
-        impl tera::Function for FunctionName {
-            fn call(&self, args: &std::collections::HashMap<String, tera::Value>) -> tera::Result<tera::Value> {
-                let name = args.get("index").ok_or_else(|| tera::Error::msg("function_name: missing argument 'name'"))?;
-                let index = name.as_u64().ok_or_else(|| tera::Error::msg("function_name: argument 'name' not a u64"))? as usize;
-                let _fn = self.functions.get(index).ok_or_else(|| tera::Error::msg("function_name: index out of bounds"))?;
-                let item = _fn.name();
-                Ok(tera::Value::String(item.into()))
-            }
-        }
-        tera.register_function("function_name", FunctionName { functions: self.inventory.functions().clone().into() });
+                write_functions(self, w)?;
 
-        let string = tera.render("main.tpl", &context).unwrap();
-        w.writer().write_all(string.as_bytes())?;
+                Ok(())
+            })?;
 
-        //- write_ifndef(self, w, |w| {
-        //-     write_ifdefcpp(self, w, |w| {
-        //         if self.imports {
-        //             write_imports(self, w)?;
-        //             w.newline()?;
-        //         }
-
-        //         write_custom_defines(self, w)?;
-        //         w.newline()?;
-
-        //         write_constants(self, w)?;
-        //         w.newline()?;
-
-        //         write_type_definitions(self, w)?;
-        //         w.newline()?;
-
-        //         write_functions(self, w)?;
-
-        //         Ok(())
-        //     })?;
-
-        //     Ok(())
-        // })?;
+            Ok(())
+        })?;
 
         Ok(())
     }

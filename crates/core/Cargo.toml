@@ -16,7 +16,7 @@ workspace = true
 
 [features]
 default = ["derive"]
-derive = ["dep:interoptopus_proc"]
+derive = ["interoptopus_proc"]
 
 [dependencies]
 interoptopus_proc = { workspace = true, optional = true }
@@ -24,7 +24,7 @@ log = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 
 [dev-dependencies]
-rustc-hash = { workspace = true }
+rustc-hash = { version = "2.1", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -40,6 +40,7 @@ pub fn field_to_type(x: &Type) -> String {
         Type::Array(a) => format!("{}[]", field_to_type(a.the_type())),
         Type::Enum(x) => x.rust_name().to_string(),
         Type::Opaque(_) => "IntPtr".to_string(),
+        Type::Included(included) => included.name().to_string(),
         Type::Composite(x) => x.rust_name().to_string(),
         Type::Wire(x) => x.rust_name().to_string(),
         Type::WirePayload(dom) => match dom {
@@ -56,8 +57,8 @@ pub fn field_to_type(x: &Type) -> String {
         Type::Pattern(x) => match x {
             TypePattern::CStrPointer => "string".to_string(),
             TypePattern::Utf8String(_) => "Utf8String".to_string(),
-            TypePattern::Slice(x) => x.composite_type().rust_name().to_string(),
-            TypePattern::SliceMut(x) => x.composite_type().rust_name().to_string(),
+            TypePattern::Slice(x) => format!("Slice{}", slice_t(x)),
+            TypePattern::SliceMut(x) => format!("SliceMut{}", slice_t(x)),
             TypePattern::Option(e) => e.the_enum().rust_name().to_string(),
             TypePattern::Result(e) => e.the_enum().rust_name().to_string(),
             TypePattern::NamedCallback(e) => e.name().to_string(),
@@ -79,6 +80,7 @@ pub fn field_to_type_unmanaged(x: &Type) -> String {
         Type::Array(x) => field_to_type(x.the_type()),
         Type::Enum(x) => format!("{}.Unmanaged", x.rust_name()),
         Type::Opaque(_) => "TODO".to_string(),
+        Type::Included(_) => "TODO".to_string(),
         Type::Composite(x) => format!("{}.Unmanaged", x.rust_name()),
         Type::Wire(x) => format!("WireOf{}", x.rust_name()),
         Type::WirePayload(_) => todo!(),
@@ -88,8 +90,8 @@ pub fn field_to_type_unmanaged(x: &Type) -> String {
         Type::Pattern(x) => match x {
             TypePattern::CStrPointer => "IntPtr".to_string(),
             TypePattern::Utf8String(_) => "Utf8String.Unmanaged".to_string(),
-            TypePattern::Slice(x) => format!("{}.Unmanaged", x.composite_type().rust_name()),
-            TypePattern::SliceMut(x) => format!("{}.Unmanaged", x.composite_type().rust_name()),
+            TypePattern::Slice(x) => format!("Slice{}.Unmanaged", slice_t(x)),
+            TypePattern::SliceMut(x) => format!("SliceMut{}.Unmanaged", slice_t(x)),
             TypePattern::Option(e) => format!("{}.Unmanaged", e.the_enum().rust_name()),
             TypePattern::Result(e) => format!("{}.Unmanaged", e.the_enum().rust_name()),
             TypePattern::NamedCallback(e) => format!("{}.Unmanaged", e.name()),
@@ -128,6 +130,7 @@ pub fn param_to_type(x: &Type) -> String {
         Type::Array(_) => todo!(),
         Type::Enum(x) => x.rust_name().to_string(),
         Type::Opaque(_) => "IntPtr".to_string(),
+        Type::Included(included) => included.name().to_string(),
         Type::Composite(x) => x.rust_name().to_string(),
         Type::Wire(x) => format!("WireOf{}", x.rust_name()),
         Type::WirePayload(_) => todo!(),
@@ -185,40 +188,10 @@ pub fn param_to_type_overloaded(x: &Type) -> String {
 pub fn param_to_managed(x: &Parameter) -> String {
     match x.the_type() {
         Type::Primitive(_) => x.name().to_string(),
-        Type::ReadPointer(z) => match &**z {
-            Type::Opaque(_) => x.name().to_string(),
-            Type::Primitive(Primitive::Void) => x.name().to_string(),
-            Type::Pattern(TypePattern::CChar) => x.name().to_string(),
-            _ => format!("ref {}", x.name()),
-        },
-        Type::ReadWritePointer(z) => match &**z {
-            Type::Opaque(_) => x.name().to_string(),
-            Type::Primitive(Primitive::Void) => x.name().to_string(),
-            Type::Pattern(TypePattern::CChar) => x.name().to_string(),
-            _ => format!("ref {}", x.name()),
-        },
+        Type::ReadPointer(_) => x.name().to_string(),
+        Type::ReadWritePointer(_) => x.name().to_string(),
         _ if is_reusable(x.the_type()) => format!("{}.ToManaged()", x.name()),
         _ => format!("{}.IntoManaged()", x.name()),
-    }
-}
-
-pub fn param_to_unmanaged(x: &Parameter) -> String {
-    match x.the_type() {
-        Type::Primitive(_) => x.name().to_string(),
-        Type::ReadPointer(z) => match &**z {
-            Type::Opaque(_) => x.name().to_string(),
-            Type::Primitive(Primitive::Void) => x.name().to_string(),
-            Type::Pattern(TypePattern::CChar) => x.name().to_string(),
-            _ => format!("ref {}", x.name()),
-        },
-        Type::ReadWritePointer(z) => match &**z {
-            Type::Opaque(_) => x.name().to_string(),
-            Type::Primitive(Primitive::Void) => x.name().to_string(),
-            Type::Pattern(TypePattern::CChar) => x.name().to_string(),
-            _ => format!("ref {}", x.name()),
-        },
-        _ if is_reusable(x.the_type()) => format!("{}.ToUnmanaged()", x.name()),
-        _ => format!("{}.IntoUnmanaged()", x.name()),
     }
 }
 
@@ -270,6 +243,7 @@ pub fn rval_to_type_sync(x: &Type) -> String {
         Type::Array(_) => todo!(),
         Type::Enum(x) => x.rust_name().to_string(),
         Type::Opaque(_) => "IntPtr".to_string(),
+        Type::Included(included) => included.name().to_string(),
         Type::Composite(x) => x.rust_name().to_string(),
         Type::Wire(x) => format!("WireOf{}", x.rust_name()),
         Type::WirePayload(_) => todo!(),
@@ -387,6 +361,7 @@ pub fn is_reusable(t: &Type) -> bool {
         }
         Type::FnPointer(_) => true,
         Type::Opaque(_) => false,
+        Type::Included(_) => false,
         Type::Primitive(_) => true,
         Type::ReadPointer(_) => true,
         Type::ReadWritePointer(_) => true,
@@ -414,7 +389,7 @@ pub fn has_dispose(t: &Type) -> bool {
         Type::Composite(x) => x.fields().iter().any(|x| has_dispose(x.the_type())),
         Type::Wire(_) => true, // Wired types may own native memory and need disposal
         Type::WirePayload(dom) => match dom {
-            WirePayload::Composite(_) => false, // Payload types are plain C# classes
+            WirePayload::Composite(_) => false, // Domain types are plain C# classes
             WirePayload::String => todo!(),
             WirePayload::Enum(_) => todo!(),
             WirePayload::Option(_) => todo!(),
@@ -436,6 +411,7 @@ pub fn has_dispose(t: &Type) -> bool {
         }
         Type::FnPointer(_) => false,
         Type::Opaque(_) => false,
+        Type::Included(_) => false, // included types are defined elsewhere.
         Type::Primitive(_) => false,
         Type::ReadPointer(_) => false,
         Type::ReadWritePointer(_) => false,

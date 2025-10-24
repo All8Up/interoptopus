@@ -1,9 +1,6 @@
-
-public class EnumException() : InteropException($"Enum variant mismatch.")  { }
-
-public class EnumException<T>(T t) : InteropException($"Enum variant mismatch.")
+public class InteropException : Exception
 {
-    public T Value { get; } = t;
+    public InteropException() : base()
+    {
+    }
 }
-
-public class InteropException(string text) : Exception(text) { }

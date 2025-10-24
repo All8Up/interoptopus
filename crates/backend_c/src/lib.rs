@@ -119,42 +119,35 @@ pub use interop::{DocStyle, EnumVariants, Functions, Indentation, Interop, Inter
 
 #[cfg(test)]
 mod tests {
-    fn inventory() -> interoptopus::inventory::Inventory {
-        use interoptopus::inventory::{Inventory, InventoryBuilder};
-        use interoptopus::{ffi_function, ffi_type, function};
-
-        #[ffi_type]
-        pub struct Vec2 {
-            pub x: f32,
-            pub y: f32,
-        }
-
-        #[ffi_function]
-        pub fn my_function(input: Vec2) -> Vec2 {
-            input
-        }
-
-        Inventory::builder().register(function!(my_function)).validate().build()
-    }
-
-    /// TEMPORARY: Just a place to test templating.
     #[test]
-    fn test_templates() -> Result<(), Box<dyn std::error::Error>> {
+    fn is_included_verbatim() {
+        // Types which are marked as `Included` should be verbatim in the output.  I.e. they should
+        // not have the string modified in any way, including not changing the case.
         use crate::Interop;
-        use interoptopus_backend_utils::IndentWriter;
-        use std::io::BufWriter;
+        use interoptopus::inventory::{Inventory, Symbol};
+        use interoptopus::lang::{Enum, Function, Included, Meta, Representation, Signature, Type};
 
-        let mut buffer = BufWriter::new(Vec::new());
-        Interop::builder()
-            .inventory(inventory())
-            .imports(true)
-            //.directives(false)
-            .file_header_comment("// My test header.")
-            .ifndef("MY_TEST_HEADER".into())
-            .build()?
-            .write_to(&mut IndentWriter::new(&mut buffer))?;
+        // Build a simple inventory.
+        let inventory = Inventory::builder()
+            .register(Symbol::Type(Type::Enum(Enum::new("included_t".into(), vec![], Meta::default(), Representation::default()))))
+            .register(Symbol::Function(Function::new(
+                "test".into(),
+                Signature::new(vec![], Type::Enum(Enum::new("included_t".into(), vec![], Meta::default(), Representation::default()))),
+                Meta::default(),
+                vec![],
+            )))
+            .validate()
+            .build()
+            // Change the type to be `Included` instead of `Enum`.
+            // If the user wants to follow interoptopus renaming from the configuration, they should
+            // run the name conversion on their own.
+            .replace_type("included_t", &Type::Included(Included::new("included_t".into(), Meta::default())));
 
-        assert!(false, "Generated output:\n{}", String::from_utf8(buffer.into_inner()?)?);
-        Ok(())
+        let config = Interop::builder().inventory(inventory).build().unwrap();
+        let content = config.to_string().unwrap();
+
+        assert!(content.contains("included_t"));
+        assert!(!content.contains("INCLUDED_T"));
+        assert!(!content.contains("enum"));
     }
 }
